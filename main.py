@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Dict, Optional
 from fastapi.middleware.cors import CORSMiddleware
+from datetime import datetime
 import uuid
 
 app = FastAPI(title="Messenger API")
@@ -93,7 +94,8 @@ def send_message(message: MessageSend):
         "message_id": str(uuid.uuid4())[:8],
         "recipient": message.recipient,
         "sender": "unknown",  # позже добавим аутентификацию
-        "encrypted_text": message.encrypted_text
+        "encrypted_text": message.encrypted_text,
+        "timestamp": datetime.now().isoformat()
     }
     messages.append(msg)
     print(f"📨 Сообщение сохранено для {message.recipient}")
@@ -102,18 +104,14 @@ def send_message(message: MessageSend):
 
 @app.get("/messages/{username}", response_model=List[MessageResponse])
 def get_messages(username: str):
-    """Получение сообщений"""
-    global messages
+    #Получение всех сообщений для пользователя
     user_messages = []
-    remaining_messages = []
 
     for msg in messages:
         if msg["recipient"] == username:
             user_messages.append(msg)
-        else:
-            remaining_messages.append(msg)
 
-    messages = remaining_messages
+    user_messages.sort(key=lambda x: x.get("timestamp", ""))
 
     return [
         MessageResponse(
