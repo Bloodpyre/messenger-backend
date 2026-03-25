@@ -30,6 +30,7 @@ class UserRegister(BaseModel):
 class MessageSend(BaseModel):
     recipient: str
     encrypted_text: str
+    sender: str  #  добавляем поле отправителя
 
 
 class MessageResponse(BaseModel):
@@ -90,27 +91,32 @@ def send_message(message: MessageSend):
     if not recipient_exists:
         raise HTTPException(status_code=404, detail="Получатель не найден")
 
+    # TODO: нужно получать отправителя из аутентификации
+    # Пока временно — будем передавать в запросе
+    sender = message.sender if hasattr(message, 'sender') else "unknown"
+
     msg = {
         "message_id": str(uuid.uuid4())[:8],
         "recipient": message.recipient,
-        "sender": "unknown",  # позже добавим аутентификацию
+        "sender": sender,  # отправитель
         "encrypted_text": message.encrypted_text,
         "timestamp": datetime.now().isoformat()
     }
     messages.append(msg)
-    print(f"📨 Сообщение сохранено для {message.recipient}")
+    print(f"📨 Сообщение от {sender} для {message.recipient}")
     return {"status": "sent", "message_id": msg["message_id"]}
 
 
 @app.get("/messages/{username}", response_model=List[MessageResponse])
 def get_messages(username: str):
-    #Получение всех сообщений для пользователя
+    """Получение всех сообщений, где пользователь участвует (как отправитель или получатель)"""
     user_messages = []
 
     for msg in messages:
-        if msg["recipient"] == username:
+        if msg["recipient"] == username or msg["sender"] == username:
             user_messages.append(msg)
 
+    # Сортируем по времени
     user_messages.sort(key=lambda x: x.get("timestamp", ""))
 
     return [
