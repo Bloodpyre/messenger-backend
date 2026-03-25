@@ -36,6 +36,7 @@ class MessageSend(BaseModel):
 class MessageResponse(BaseModel):
     sender: str
     encrypted_text: str
+    recipient: str
     message_id: str
 
 
@@ -109,19 +110,19 @@ def send_message(message: MessageSend):
 
 @app.get("/messages/{username}", response_model=List[MessageResponse])
 def get_messages(username: str):
-    """Получение всех сообщений, где пользователь участвует (как отправитель или получатель)"""
+    """Получение всех сообщений, где пользователь участвует"""
     user_messages = []
 
     for msg in messages:
         if msg["recipient"] == username or msg["sender"] == username:
             user_messages.append(msg)
 
-    # Сортируем по времени
     user_messages.sort(key=lambda x: x.get("timestamp", ""))
 
     return [
         MessageResponse(
             sender=msg["sender"],
+            recipient=msg["recipient"],
             encrypted_text=msg["encrypted_text"],
             message_id=msg["message_id"]
         )
