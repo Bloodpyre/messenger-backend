@@ -1,10 +1,18 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Dict, Optional
+from fastapi.middleware.cors import CORSMiddleware
 import uuid
 
 app = FastAPI(title="Messenger API")
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 # Хранилище: user_id -> {username, public_key}
 users: Dict[str, dict] = {}
 # Хранилище сообщений
