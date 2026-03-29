@@ -1,12 +1,13 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Dict, Optional
-from fastapi.middleware.cors import CORSMiddleware
-from datetime import datetime
 import uuid
+from datetime import datetime
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="Messenger API")
 
+# Добавляем CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -14,8 +15,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-# Хранилище: user_id -> {username, public_key}
-users: Dict[str, dict] = {}
+
+# Хранилище пользователей (только username)
+users: Dict[str, str] = {}  # user_id -> username
 # Хранилище сообщений
 messages: List[dict] = []
 
@@ -23,20 +25,19 @@ messages: List[dict] = []
 # ========== МОДЕЛИ ДАННЫХ ==========
 
 class UserRegister(BaseModel):
-    username: str
-    public_key: str  # ← обязательно!
+    username: str  # ← только имя, без ключа
 
 
 class MessageSend(BaseModel):
     recipient: str
     encrypted_text: str
-    sender: str  #  добавляем поле отправителя
+    sender: str
 
 
 class MessageResponse(BaseModel):
     sender: str
-    encrypted_text: str
     recipient: str
+    encrypted_text: str
     message_id: str
 
 
@@ -49,69 +50,38 @@ def root():
 
 @app.post("/register")
 def register(user: UserRegister):
-    # Проверяем, существует ли пользователь
-    for uid, data in users.items():
-        if data["username"] == user.username:
-            raise HTTPException(status_code=400, detail="Пользователь уже существует")
+    """Регистрация нового пользователя"""
+    if user.username in users.values():
+        raise HTTPException(status_code=400, detail="Пользователь уже существует")
 
     user_id = str(uuid.uuid4())[:8]
-    users[user_id] = {
-        "username": user.username,
-        "public_key": user.public_key
-    }
+    users[user_id] = user.username
+    print(f"✅ Зарегистрирован: {user.username}")
     return {"user_id": user_id, "username": user.username}
-
-
-@app.get("/users/{username}/public_key")
-def get_public_key(username: str):
-    """Получить публичный ключ пользователя"""
-    for uid, data in users.items():
-        if data["username"] == username:
-            return {"username": username, "public_key": data["public_key"]}
-    raise HTTPException(status_code=404, detail="Пользователь не найден")
 
 
 @app.get("/users")
 def get_users():
     """Список всех пользователей"""
-    return [{"user_id": uid, "username": data["username"]} for uid, data in users.items()]
-
-
-@app.get("/users/{username}/public_key")
-def get_public_key(username: str):
-    """Получить публичный ключ пользователя"""
-    for uid, data in users.items():
-        if data["username"] == username:
-            return {"username": username, "public_key": data["public_key"]}
-    raise HTTPException(status_code=404, detail="Пользователь не найден")
+    return [{"user_id": uid, "username": username} for uid, username in users.items()]
 
 
 @app.post("/messages")
 def send_message(message: MessageSend):
     """Отправка сообщения"""
     # Проверяем, существует ли получатель
-    recipient_exists = False
-    for data in users.values():
-        if data["username"] == message.recipient:
-            recipient_exists = True
-            break
-
-    if not recipient_exists:
+    if message.recipient not in users.values():
         raise HTTPException(status_code=404, detail="Получатель не найден")
-
-    # TODO: нужно получать отправителя из аутентификации
-    # Пока временно — будем передавать в запросе
-    sender = message.sender if hasattr(message, 'sender') else "unknown"
 
     msg = {
         "message_id": str(uuid.uuid4())[:8],
         "recipient": message.recipient,
-        "sender": sender,  # отправитель
+        "sender": message.sender,
         "encrypted_text": message.encrypted_text,
         "timestamp": datetime.now().isoformat()
     }
     messages.append(msg)
-    print(f"📨 Сообщение от {sender} для {message.recipient}")
+    print(f"📨 Сообщение от {message.sender} для {message.recipient}")
     return {"status": "sent", "message_id": msg["message_id"]}
 
 
@@ -135,9 +105,3 @@ def get_messages(username: str):
         )
         for msg in user_messages
     ]
-
-if __name__ == "__main__":
-    import uvicorn
-    import os
-    port = int(os.getenv("PORT", 80))
-    uvicorn.run(app, host="0.0.0.0", port=port)
