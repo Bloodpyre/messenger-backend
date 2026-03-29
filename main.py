@@ -132,5 +132,6 @@ def get_messages(username: str):
 # ========== ЗАПУСК ==========
 if __name__ == "__main__":
     import uvicorn
+    import os
     port = int(os.getenv("PORT", 80))
     uvicorn.run(app, host="0.0.0.0", port=port)
