@@ -1,13 +1,14 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import List, Dict, Optional
+from typing import List, Dict
 import uuid
 from datetime import datetime
 from fastapi.middleware.cors import CORSMiddleware
+import os
 
 app = FastAPI(title="Messenger API")
 
-# Добавляем CORS
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -16,16 +17,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Хранилище пользователей (только username)
-users: Dict[str, str] = {}  # user_id -> username
+# Хранилище пользователей: username -> {"password": str, "user_id": str}
+users: Dict[str, dict] = {}
 # Хранилище сообщений
 messages: List[dict] = []
 
 
-# ========== МОДЕЛИ ДАННЫХ ==========
+# ========== МОДЕЛИ ==========
 
 class UserRegister(BaseModel):
-    username: str  # ← только имя, без ключа
+    username: str
+    password: str
+
+
+class UserLogin(BaseModel):
+    username: str
+    password: str
 
 
 class MessageSend(BaseModel):
@@ -51,27 +58,41 @@ def root():
 
 @app.post("/register")
 def register(user: UserRegister):
-    """Регистрация нового пользователя"""
-    if user.username in users.values():
+    """Регистрация нового пользователя с паролем"""
+    if user.username in users:
         raise HTTPException(status_code=400, detail="Пользователь уже существует")
 
     user_id = str(uuid.uuid4())[:8]
-    users[user_id] = user.username
-    print(f"✅ Зарегистрирован: {user.username}")
+    users[user.username] = {
+        "password": user.password,
+        "user_id": user_id
+    }
+    print(f"✅ Зарегистрирован: {user.username} (пароль: {user.password})")
     return {"user_id": user_id, "username": user.username}
+
+
+@app.post("/login")
+def login(user: UserLogin):
+    """Вход пользователя"""
+    if user.username not in users:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    if users[user.username]["password"] != user.password:
+        raise HTTPException(status_code=401, detail="Неверный пароль")
+
+    return {"status": "ok", "username": user.username}
 
 
 @app.get("/users")
 def get_users():
-    """Список всех пользователей"""
-    return [{"user_id": uid, "username": username} for uid, username in users.items()]
+    """Список всех пользователей (без паролей)"""
+    return [{"user_id": users[u]["user_id"], "username": u} for u in users.keys()]
 
 
 @app.post("/messages")
 def send_message(message: MessageSend):
     """Отправка сообщения"""
-    # Проверяем, существует ли получатель
-    if message.recipient not in users.values():
+    if message.recipient not in users:
         raise HTTPException(status_code=404, detail="Получатель не найден")
 
     msg = {
@@ -88,9 +109,8 @@ def send_message(message: MessageSend):
 
 @app.get("/messages/{username}", response_model=List[MessageResponse])
 def get_messages(username: str):
-    """Получение всех сообщений, где пользователь участвует"""
+    """Получение всех сообщений пользователя"""
     user_messages = []
-
     for msg in messages:
         if msg["recipient"] == username or msg["sender"] == username:
             user_messages.append(msg)
@@ -106,13 +126,11 @@ def get_messages(username: str):
             timestamp=msg.get("timestamp", "")
         )
         for msg in user_messages
-
     ]
 
+
+# ========== ЗАПУСК ==========
 if __name__ == "__main__":
     import uvicorn
-    import os
-    port = int(os.getenv("PORT", 80))
+    port = int(os.getenv("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
-
-#bruh
