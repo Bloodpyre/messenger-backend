@@ -49,7 +49,6 @@ def root():
 
 @app.post("/register")
 def register(user: UserRegister):
-    """Регистрация с публичным ключом"""
     # Проверяем, существует ли пользователь
     for uid, data in users.items():
         if data["username"] == user.username:
@@ -60,8 +59,16 @@ def register(user: UserRegister):
         "username": user.username,
         "public_key": user.public_key
     }
-    print(f"✅ Зарегистрирован: {user.username} с ключом {user.public_key[:50]}...")
     return {"user_id": user_id, "username": user.username}
+
+
+@app.get("/users/{username}/public_key")
+def get_public_key(username: str):
+    """Получить публичный ключ пользователя"""
+    for uid, data in users.items():
+        if data["username"] == username:
+            return {"username": username, "public_key": data["public_key"]}
+    raise HTTPException(status_code=404, detail="Пользователь не найден")
 
 
 @app.get("/users")
