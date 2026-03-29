@@ -39,6 +39,7 @@ class MessageResponse(BaseModel):
     recipient: str
     encrypted_text: str
     message_id: str
+    timestamp: str
 
 
 # ========== ЭНДПОИНТЫ ==========
@@ -101,7 +102,8 @@ def get_messages(username: str):
             sender=msg["sender"],
             recipient=msg["recipient"],
             encrypted_text=msg["encrypted_text"],
-            message_id=msg["message_id"]
+            message_id=msg["message_id"],
+            timestamp=msg.get("timestamp", "")
         )
         for msg in user_messages
 
