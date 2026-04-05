@@ -17,7 +17,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Хранилище пользователей: username -> {"password": str, "user_id": str}
+# Хранилище пользователей
 users: Dict[str, dict] = {}
 # Хранилище сообщений
 messages: List[dict] = []
