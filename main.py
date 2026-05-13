@@ -15,6 +15,13 @@ DATA_DIR = "/data"  # Это постоянная папка на Amvera
 os.makedirs(DATA_DIR, exist_ok=True)  # Убедимся, что папка существует
 DATABASE_FILE = os.path.join(DATA_DIR, "messenger.db")
 
+if os.path.exists('/data'):
+    DATABASE_FILE = '/data/messenger.db'
+    print("🟢 Работаем на Amvera. База данных будет сохранена в /data")
+else:
+    # Локальная разработка (Windows, Mac, Linux): база в текущей папке
+    DATABASE_FILE = 'messenger.db'
+    print("🟡 Локальная разработка. База данных будет в текущей папке")
 
 def get_db_connection():
     """Функция для получения соединения с БД. Используется для HTTP-запросов."""
