@@ -1,41 +1,55 @@
 import json
 import asyncio
+import sqlite3
 import os
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Dict, List
-
-import psycopg2
-from psycopg2 import pool
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from dotenv import load_dotenv
 
-load_dotenv()
-
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    raise ValueError("Переменная окружения DATABASE_URL не установлена!")
-
-# Парсим DATABASE_URL
-import urllib.parse
-
-result = urllib.parse.urlparse(DATABASE_URL)
-db_params = {
-    "user": result.username,
-    "password": result.password,
-    "host": result.hostname,
-    "port": result.port or 5432,
-    "database": result.path.lstrip('/')
-}
-
-# Создаем пул соединений
-db_pool = None
+# --- НАСТРОЙКА БАЗЫ ДАННЫХ (SQLite) ---
+# База данных будет храниться в файле messenger.db в папке с приложением
+# Это обычный файл, данные сохраняются между перезапусками.
+DATABASE_FILE = "messenger.db"
 
 
-# Модели
+def get_db_connection():
+    """Функция для получения соединения с БД. Используется для HTTP-запросов."""
+    conn = sqlite3.connect(DATABASE_FILE)
+    conn.row_factory = sqlite3.Row  # Чтобы обращаться к колонкам по имени
+    return conn
+
+
+def init_db():
+    """Создает таблицы, если они еще не созданы."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            username TEXT PRIMARY KEY,
+            password TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sender TEXT NOT NULL,
+            recipient TEXT NOT NULL,
+            encrypted_text TEXT NOT NULL,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+    conn.close()
+    print("✅ База данных SQLite инициализирована (файл messenger.db)")
+
+
+# --- ОСТАЛЬНОЙ КОД (Pydantic модели, WebSocket менеджер) ОСТАЕТСЯ БЕЗ ИЗМЕНЕНИЙ ---
+
 class UserRegister(BaseModel):
     username: str
     password: str
@@ -46,7 +60,12 @@ class UserLogin(BaseModel):
     password: str
 
 
-# Менеджер WebSocket соединений
+class MessageSend(BaseModel):
+    recipient: str
+    encrypted_text: str
+    sender: str
+
+
 class ConnectionManager:
     def __init__(self):
         self.active_connections: Dict[str, WebSocket] = {}
@@ -54,7 +73,7 @@ class ConnectionManager:
     async def connect(self, websocket: WebSocket, username: str):
         await websocket.accept()
         self.active_connections[username] = websocket
-        print(f"✅ {username} подключился")
+        print(f"✅ {username} подключился через WebSocket")
 
     def disconnect(self, username: str):
         if username in self.active_connections:
@@ -66,71 +85,22 @@ class ConnectionManager:
             try:
                 await self.active_connections[username].send_text(json.dumps(message))
                 return True
-            except:
-                return False
+            except Exception as e:
+                print(f"Ошибка отправки {username}: {e}")
         return False
-
-
-manager = ConnectionManager()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global db_pool
-    # Создаем пул соединений PostgreSQL
-    db_pool = pool.SimpleConnectionPool(1, 10, **db_params)
-    print("🚀 Сервер запущен, пул PostgreSQL создан")
-
-    # Создаем таблицы
-    await asyncio.to_thread(init_db)
-
+    print("🚀 Запуск сервера...")
+    init_db()
     yield
-
-    # Закрываем пул при остановке
-    if db_pool:
-        db_pool.closeall()
     print("🛑 Сервер остановлен")
 
 
-def init_db():
-    """Создает таблицы (синхронная функция)"""
-    conn = db_pool.getconn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    username TEXT PRIMARY KEY,
-                    password TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT NOW()
-                )
-            """)
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS messages (
-                    id SERIAL PRIMARY KEY,
-                    sender TEXT NOT NULL,
-                    recipient TEXT NOT NULL,
-                    encrypted_text TEXT NOT NULL,
-                    timestamp TIMESTAMP DEFAULT NOW()
-                )
-            """)
-            conn.commit()
-            print("✅ Таблицы созданы/проверены")
-    finally:
-        db_pool.putconn(conn)
-
-
-def get_user(username: str):
-    """Проверяет существование пользователя"""
-    conn = db_pool.getconn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT 1 FROM users WHERE username = %s", (username,))
-            return cur.fetchone() is not None
-    finally:
-        db_pool.putconn(conn)
-
-
+# --- ПРИЛОЖЕНИЕ FASTAPI ---
 app = FastAPI(lifespan=lifespan)
+manager = ConnectionManager()
 
 app.add_middleware(
     CORSMiddleware,
@@ -141,99 +111,89 @@ app.add_middleware(
 )
 
 
+# --- ЭНДПОИНТЫ ---
 @app.get("/")
 def root():
-    return {"message": "Messenger API с PostgreSQL и WebSocket!"}
+    return {"message": "Messenger API работает с SQLite и WebSocket!"}
 
 
 @app.post("/register")
 async def register(user: UserRegister):
-    conn = db_pool.getconn()
+    """Регистрация нового пользователя"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
     try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO users (username, password) VALUES (%s, %s)",
-                (user.username, user.password)
-            )
-            conn.commit()
-            return {"status": "ok", "username": user.username}
-    except psycopg2.IntegrityError:
-        conn.rollback()
+        cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", (user.username, user.password))
+        conn.commit()
+        return {"status": "ok", "username": user.username}
+    except sqlite3.IntegrityError:
         raise HTTPException(status_code=400, detail="Пользователь уже существует")
     finally:
-        db_pool.putconn(conn)
+        conn.close()
 
 
 @app.post("/login")
 async def login(user: UserLogin):
-    conn = db_pool.getconn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT password FROM users WHERE username = %s",
-                (user.username,)
-            )
-            row = cur.fetchone()
-            if not row:
-                raise HTTPException(status_code=404, detail="Пользователь не найден")
-            if row[0] != user.password:
-                raise HTTPException(status_code=401, detail="Неверный пароль")
-            return {"status": "ok", "username": user.username}
-    finally:
-        db_pool.putconn(conn)
+    """Вход пользователя"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT password FROM users WHERE username = ?", (user.username,))
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    if row["password"] != user.password:
+        raise HTTPException(status_code=401, detail="Неверный пароль")
+    return {"status": "ok", "username": user.username}
 
 
 @app.get("/users")
 async def get_users():
-    conn = db_pool.getconn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT username FROM users")
-            rows = cur.fetchall()
-            return [{"username": row[0]} for row in rows]
-    finally:
-        db_pool.putconn(conn)
+    """Список всех пользователей"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT username FROM users")
+    rows = cursor.fetchall()
+    conn.close()
+    return [{"username": row["username"]} for row in rows]
 
 
 @app.get("/messages/{username}")
 async def get_messages(username: str):
-    conn = db_pool.getconn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT sender, recipient, encrypted_text, timestamp
-                FROM messages
-                WHERE sender = %s OR recipient = %s
-                ORDER BY timestamp ASC
-            """, (username, username))
-            rows = cur.fetchall()
-            return [
-                {
-                    "sender": row[0],
-                    "recipient": row[1],
-                    "encrypted_text": row[2],
-                    "timestamp": row[3].isoformat()
-                }
-                for row in rows
-            ]
-    finally:
-        db_pool.putconn(conn)
+    """История сообщений пользователя"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT sender, recipient, encrypted_text, timestamp
+        FROM messages
+        WHERE sender = ? OR recipient = ?
+        ORDER BY timestamp ASC
+    """, (username, username))
+    rows = cursor.fetchall()
+    conn.close()
+    return [
+        {
+            "sender": row["sender"],
+            "recipient": row["recipient"],
+            "encrypted_text": row["encrypted_text"],
+            "timestamp": row["timestamp"]
+        }
+        for row in rows
+    ]
 
 
 @app.post("/messages")
-async def save_message_api(message: dict):
+async def save_message_api(message: MessageSend):
     """HTTP-эндпоинт для сохранения сообщения (запасной)"""
-    conn = db_pool.getconn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO messages (sender, recipient, encrypted_text)
-                VALUES (%s, %s, %s)
-            """, (message["sender"], message["recipient"], message["encrypted_text"]))
-            conn.commit()
-            return {"status": "sent"}
-    finally:
-        db_pool.putconn(conn)
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO messages (sender, recipient, encrypted_text)
+        VALUES (?, ?, ?)
+    """, (message.sender, message.recipient, message.encrypted_text))
+    conn.commit()
+    conn.close()
+    return {"status": "sent"}
 
 
 @app.websocket("/ws/{username}")
@@ -250,16 +210,14 @@ async def websocket_endpoint(websocket: WebSocket, username: str):
             sender = username
 
             # Сохраняем в базу
-            conn = db_pool.getconn()
-            try:
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        INSERT INTO messages (sender, recipient, encrypted_text)
-                        VALUES (%s, %s, %s)
-                    """, (sender, recipient, encrypted_text))
-                    conn.commit()
-            finally:
-                db_pool.putconn(conn)
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO messages (sender, recipient, encrypted_text)
+                VALUES (?, ?, ?)
+            """, (sender, recipient, encrypted_text))
+            conn.commit()
+            conn.close()
 
             # Отправляем получателю, если он онлайн
             await manager.send_personal_message({
@@ -272,8 +230,8 @@ async def websocket_endpoint(websocket: WebSocket, username: str):
     except WebSocketDisconnect:
         manager.disconnect(username)
 
-# ========== ЗАПУСК ==========
+
+# --- ЗАПУСК ДЛЯ AMVERA ---
 if __name__ == "__main__":
     import uvicorn
-    import os
     port = int(os.getenv("PORT", 80))
