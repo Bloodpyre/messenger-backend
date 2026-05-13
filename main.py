@@ -179,7 +179,7 @@ async def get_messages(username: str):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT sender, recipient, encrypted_text, timestamp
+        SELECT id, sender, recipient, encrypted_text, timestamp
         FROM messages
         WHERE sender = ? OR recipient = ?
         ORDER BY timestamp ASC
