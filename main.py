@@ -211,25 +211,6 @@ async def save_message_api(message: MessageSend):
     conn.close()
     return {"status": "sent"}
 
-@app.get("/debug/reset_messages")
-async def reset_messages():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    # Удаляем старую таблицу
-    cursor.execute("DROP TABLE IF EXISTS messages")
-    # Создаём новую с AUTOINCREMENT
-    cursor.execute("""
-        CREATE TABLE messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            sender TEXT NOT NULL,
-            recipient TEXT NOT NULL,
-            encrypted_text TEXT NOT NULL,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    conn.commit()
-    conn.close()
-    return {"status": "ok", "message": "Таблица messages пересоздана"}
 
 @app.websocket("/ws/{username}")
 async def websocket_endpoint(websocket: WebSocket, username: str):
