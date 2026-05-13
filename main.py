@@ -188,6 +188,7 @@ async def get_messages(username: str):
     conn.close()
     return [
         {
+            "message_id": str(row["id"]),
             "sender": row["sender"],
             "recipient": row["recipient"],
             "encrypted_text": row["encrypted_text"],
