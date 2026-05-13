@@ -15,7 +15,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://bloodpyre:qwerty123456@localhost:5432/messenger")
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise ValueError("Переменная окружения DATABASE_URL не установлена!")
 
 # Парсим DATABASE_URL
 import urllib.parse
@@ -26,7 +28,7 @@ db_params = {
     "password": result.password,
     "host": result.hostname,
     "port": result.port or 5432,
-    "database": result.path[1:]
+    "database": result.path.lstrip('/')
 }
 
 # Создаем пул соединений
