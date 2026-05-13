@@ -1,2 +1,5 @@
-fastapi
-uvicorn
+fastapi[all]
+uvicorn[standard]
+psycopg2-binary
+python-dotenv
+websockets
