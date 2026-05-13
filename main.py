@@ -11,9 +11,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 # --- НАСТРОЙКА БАЗЫ ДАННЫХ (SQLite) ---
-# База данных будет храниться в файле messenger.db в папке с приложением
-# Это обычный файл, данные сохраняются между перезапусками.
-DATABASE_FILE = "messenger.db"
+DATA_DIR = "/data"  # Это постоянная папка на Amvera
+os.makedirs(DATA_DIR, exist_ok=True)  # Убедимся, что папка существует
+DATABASE_FILE = os.path.join(DATA_DIR, "messenger.db")
 
 
 def get_db_connection():
