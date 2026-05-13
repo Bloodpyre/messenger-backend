@@ -10,28 +10,34 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-# --- НАСТРОЙКА БАЗЫ ДАННЫХ (SQLite) ---
-DATA_DIR = "/data"  # Это постоянная папка на Amvera
-os.makedirs(DATA_DIR, exist_ok=True)  # Убедимся, что папка существует
-DATABASE_FILE = os.path.join(DATA_DIR, "messenger.db")
 
-if os.path.exists('/data'):
-    DATABASE_FILE = '/data/messenger.db'
-    print("🟢 Работаем на Amvera. База данных будет сохранена в /data")
-else:
-    # Локальная разработка (Windows, Mac, Linux): база в текущей папке
-    DATABASE_FILE = 'messenger.db'
-    print("🟡 Локальная разработка. База данных будет в текущей папке")
+# ========== НАСТРОЙКА БАЗЫ ДАННЫХ ==========
+# Определяем правильный путь для БД в зависимости от окружения
+def get_db_path():
+    """Возвращает правильный путь для файла базы данных"""
+    # Для Amvera: используем постоянное хранилище /data
+    if os.path.exists('/data') or os.getenv('AMVERA'):
+        db_path = '/data/messenger.db'
+        print(f"🟢 Режим Amvera: база данных будет в {db_path}")
+    else:
+        # Для локальной разработки
+        db_path = 'messenger.db'
+        print(f"🟡 Локальный режим: база данных будет в {db_path}")
+    return db_path
+
+
+DATABASE_FILE = get_db_path()
+
 
 def get_db_connection():
-    """Функция для получения соединения с БД. Используется для HTTP-запросов."""
+    """Создаёт соединение с SQLite базой данных"""
     conn = sqlite3.connect(DATABASE_FILE)
-    conn.row_factory = sqlite3.Row  # Чтобы обращаться к колонкам по имени
+    conn.row_factory = sqlite3.Row
     return conn
 
 
 def init_db():
-    """Создает таблицы, если они еще не созданы."""
+    """Создаёт таблицы при первом запуске"""
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
@@ -52,11 +58,10 @@ def init_db():
     """)
     conn.commit()
     conn.close()
-    print("✅ База данных SQLite инициализирована (файл messenger.db)")
+    print(f"✅ База данных SQLite инициализирована: {DATABASE_FILE}")
 
 
-# --- ОСТАЛЬНОЙ КОД (Pydantic модели, WebSocket менеджер) ОСТАЕТСЯ БЕЗ ИЗМЕНЕНИЙ ---
-
+# ========== PYDANTIC МОДЕЛИ ==========
 class UserRegister(BaseModel):
     username: str
     password: str
@@ -73,6 +78,7 @@ class MessageSend(BaseModel):
     sender: str
 
 
+# ========== WEBSOCKET МЕНЕДЖЕР ==========
 class ConnectionManager:
     def __init__(self):
         self.active_connections: Dict[str, WebSocket] = {}
@@ -97,6 +103,7 @@ class ConnectionManager:
         return False
 
 
+# ========== LIFESPAN ==========
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("🚀 Запуск сервера...")
@@ -105,10 +112,11 @@ async def lifespan(app: FastAPI):
     print("🛑 Сервер остановлен")
 
 
-# --- ПРИЛОЖЕНИЕ FASTAPI ---
+# ========== ПРИЛОЖЕНИЕ FASTAPI ==========
 app = FastAPI(lifespan=lifespan)
 manager = ConnectionManager()
 
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -118,7 +126,7 @@ app.add_middleware(
 )
 
 
-# --- ЭНДПОИНТЫ ---
+# ========== ЭНДПОИНТЫ ==========
 @app.get("/")
 def root():
     return {"message": "Messenger API работает с SQLite и WebSocket!"}
@@ -238,7 +246,8 @@ async def websocket_endpoint(websocket: WebSocket, username: str):
         manager.disconnect(username)
 
 
-# --- ЗАПУСК ДЛЯ AMVERA ---
+# ========== ЗАПУСК ДЛЯ AMVERA ==========
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 80))
+    uvicorn.run(app, host="0.0.0.0", port=port)
