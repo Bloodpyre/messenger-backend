@@ -172,6 +172,15 @@ async def get_users():
     conn.close()
     return [{"username": row["username"]} for row in rows]
 
+@app.get("/debug/check_data")
+async def check_data():
+    import os
+    return {
+        "exists": os.path.exists("/data"),
+        "writable": os.access("/data", os.W_OK),
+        "db_exists": os.path.exists("/data/messenger.db")
+    }
+
 
 @app.get("/messages/{username}")
 async def get_messages(username: str):
