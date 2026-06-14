@@ -181,6 +181,9 @@ async def check_data():
         "db_exists": os.path.exists("/data/messenger.db")
     }
 
+@app.get("/debug/health")
+async def health():
+    return {"status": "ok", "websocket": "wss://messangerapp-bloodpyre.amvera.io/ws/test1"}
 
 @app.get("/messages/{username}")
 async def get_messages(username: str):
